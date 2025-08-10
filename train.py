@@ -1,11 +1,12 @@
 import torch 
-import torchvision 
-from torchvision.datasets import ImageFolder
-from torch.utils.data import DataLoader, random_split, Subset
+from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
 import timm 
 from pathlib import Path 
 
-from config import classes, dir_name_to_class
+from config import classes
+from utils import CustomImageFolder
+
 
 def load_model(model_name: str,
                classes: list[str]
@@ -26,7 +27,15 @@ def load_data(data_src: str | Path,
     """
     torchvision.datasets.ImageFolder를 사용하여 데이터를 로드합니다.
     """
-    dataset = ImageFolder(root=data_src)
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    
+    dataset = CustomImageFolder(root=data_src, 
+                              transform=transform,
+                              is_valid_file=CustomImageFolder.is_valid_image_file)
     
     # 데이터셋 분할
     train_size = int(train_split_ratio * len(dataset))
@@ -119,6 +128,11 @@ def train_model(model: torch.nn.Module,
 
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    
+    best_valid_loss = float('inf')
+    
+    weights_dir: Path = Path("models")
+    weights_dir.mkdir(parents=True, exist_ok=True)
 
     for epoch in range(epochs):
         train_loss = _train_epoch(model=model, 
@@ -134,6 +148,14 @@ def train_model(model: torch.nn.Module,
                                   device=device
                                   )
         print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} | Valid Loss: {valid_loss:.4f}")
+
+        if valid_loss < best_valid_loss:
+            best_valid_loss = valid_loss
+            torch.save(model.state_dict(), weights_dir / "best.pt")
+            print(f"Best model saved with valid loss: {best_valid_loss:.4f}")
+
+    torch.save(model.state_dict(), weights_dir / "latest.pt")
+    print("Latest model saved.")
 
 def main():
     model_name = "resnet101"
