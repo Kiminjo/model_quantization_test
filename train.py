@@ -142,10 +142,10 @@ def train_model(model: torch.nn.Module,
 
         if valid_loss < best_valid_loss:
             best_valid_loss = valid_loss
-            torch.save(model.state_dict(), os.path.join(weights_dir, "best.pt"))
+            torch.save(model.state_dict(), weights_dir / "best.pt")
             print(f"Best model saved with valid loss: {best_valid_loss:.4f}")
 
-    torch.save(model.state_dict(), os.path.join(weights_dir, "latest.pt"))
+    torch.save(model.state_dict(), weights_dir / "latest.pt")
     print("Latest model saved.")
 
 def main():
