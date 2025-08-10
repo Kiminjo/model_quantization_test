@@ -1,5 +1,6 @@
 import torch 
 from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
 import timm 
 from pathlib import Path 
 
@@ -26,9 +27,15 @@ def load_data(data_src: str | Path,
     """
     torchvision.datasets.ImageFolder를 사용하여 데이터를 로드합니다.
     """
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    
     dataset = CustomImageFolder(root=data_src, 
-                                is_valid_file=CustomImageFolder.is_valid_image_file
-                                )
+                              transform=transform,
+                              is_valid_file=CustomImageFolder.is_valid_image_file)
     
     # 데이터셋 분할
     train_size = int(train_split_ratio * len(dataset))
