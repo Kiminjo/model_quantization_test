@@ -1,11 +1,11 @@
 import torch 
-from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader, random_split
 import timm 
 from pathlib import Path 
-import os
 
-from config import classes, dir_name_to_class
+from config import classes
+from utils import CustomImageFolder
+
 
 def load_model(model_name: str,
                classes: list[str]
@@ -26,7 +26,7 @@ def load_data(data_src: str | Path,
     """
     torchvision.datasets.ImageFolder를 사용하여 데이터를 로드합니다.
     """
-    dataset = ImageFolder(root=data_src)
+    dataset = CustomImageFolder(root=data_src)
     
     # 데이터셋 분할
     train_size = int(train_split_ratio * len(dataset))
