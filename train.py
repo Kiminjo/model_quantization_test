@@ -1,9 +1,9 @@
 import torch 
-import torchvision 
 from torchvision.datasets import ImageFolder
-from torch.utils.data import DataLoader, random_split, Subset
+from torch.utils.data import DataLoader, random_split
 import timm 
 from pathlib import Path 
+import os
 
 from config import classes, dir_name_to_class
 
@@ -119,6 +119,11 @@ def train_model(model: torch.nn.Module,
 
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    
+    best_valid_loss = float('inf')
+    
+    weights_dir: Path = Path("models")
+    weights_dir.mkdir(parents=True, exist_ok=True)
 
     for epoch in range(epochs):
         train_loss = _train_epoch(model=model, 
@@ -134,6 +139,14 @@ def train_model(model: torch.nn.Module,
                                   device=device
                                   )
         print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} | Valid Loss: {valid_loss:.4f}")
+
+        if valid_loss < best_valid_loss:
+            best_valid_loss = valid_loss
+            torch.save(model.state_dict(), os.path.join(weights_dir, "best.pt"))
+            print(f"Best model saved with valid loss: {best_valid_loss:.4f}")
+
+    torch.save(model.state_dict(), os.path.join(weights_dir, "latest.pt"))
+    print("Latest model saved.")
 
 def main():
     model_name = "resnet101"
