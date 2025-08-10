@@ -26,7 +26,9 @@ def load_data(data_src: str | Path,
     """
     torchvision.datasets.ImageFolder를 사용하여 데이터를 로드합니다.
     """
-    dataset = CustomImageFolder(root=data_src)
+    dataset = CustomImageFolder(root=data_src, 
+                                is_valid_file=CustomImageFolder.is_valid_image_file
+                                )
     
     # 데이터셋 분할
     train_size = int(train_split_ratio * len(dataset))
