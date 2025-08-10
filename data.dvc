@@ -1,0 +1,6 @@
+outs:
+- md5: 9dd4d4a12726e7d101b368ca394e668c.dir
+  size: 3476067255
+  nfiles: 14482
+  hash: md5
+  path: background_classifier
