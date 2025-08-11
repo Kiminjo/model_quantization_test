@@ -1,8 +1,9 @@
 import torch 
 from torch.utils.data import DataLoader, random_split
-from torchvision import transforms
+from torchvision import transforms, utils
 import timm 
 from pathlib import Path 
+from torch.utils.tensorboard import SummaryWriter
 
 from config import classes
 from utils import CustomImageFolder
@@ -60,7 +61,7 @@ def _train_epoch(model: torch.nn.Module,
                  optimizer: torch.optim.Optimizer,
                  criterion: torch.nn.Module,
                  device: str
-                 ) -> float:
+                 ) -> tuple[float, float]:
     """
     하나의 에포크를 학습하는 함수 
 
@@ -73,6 +74,8 @@ def _train_epoch(model: torch.nn.Module,
     """
     model.train()
     running_loss = 0.0
+    correct = 0
+    total = 0
     for inputs, labels in train_loader:
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
@@ -81,29 +84,41 @@ def _train_epoch(model: torch.nn.Module,
         loss.backward()
         optimizer.step()
         running_loss += loss.item() * inputs.size(0)
+        
+        _, predicted = torch.max(outputs.data, 1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
     
     epoch_loss = running_loss / len(train_loader.dataset)
-    return epoch_loss
+    epoch_acc = correct / total
+    return epoch_loss, epoch_acc
 
 def _valid_epoch(model: torch.nn.Module,
                  valid_loader: DataLoader,
                  criterion: torch.nn.Module,
                  device: str
-                 ) -> float:
+                 ) -> tuple[float, float]:
     """
     하나의 에포크를 검증하는 함수 
     """
     model.eval()
     running_loss = 0.0
+    correct = 0
+    total = 0
     with torch.no_grad():
         for inputs, labels in valid_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             running_loss += loss.item() * inputs.size(0)
+            
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
 
     epoch_loss = running_loss / len(valid_loader.dataset)
-    return epoch_loss
+    epoch_acc = correct / total
+    return epoch_loss, epoch_acc
 
 def train_model(model: torch.nn.Module,
                 train_loader: DataLoader,
@@ -129,33 +144,61 @@ def train_model(model: torch.nn.Module,
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     
+    writer = SummaryWriter('runs/model_experiment')
+    
     best_valid_loss = float('inf')
     
     weights_dir: Path = Path("models")
     weights_dir.mkdir(parents=True, exist_ok=True)
 
     for epoch in range(epochs):
-        train_loss = _train_epoch(model=model, 
-                                  train_loader=train_loader, 
-                                  optimizer=optimizer, 
-                                  criterion=criterion, 
-                                  device=device
-                                  )
+        train_loss, train_acc = _train_epoch(model=model, 
+                                             train_loader=train_loader, 
+                                             optimizer=optimizer, 
+                                             criterion=criterion, 
+                                             device=device
+                                             )
         
-        valid_loss = _valid_epoch(model=model, 
-                                  valid_loader=valid_loader,
-                                  criterion=criterion,
-                                  device=device
-                                  )
-        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} | Valid Loss: {valid_loss:.4f}")
+        valid_loss, valid_acc = _valid_epoch(model=model, 
+                                             valid_loader=valid_loader,
+                                             criterion=criterion,
+                                             device=device
+                                             )
+        
+        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | Valid Loss: {valid_loss:.4f} | Valid Acc: {valid_acc:.4f}")
+
+        writer.add_scalar('Loss/train', train_loss, epoch)
+        writer.add_scalar('Accuracy/train', train_acc, epoch)
+        writer.add_scalar('Loss/valid', valid_loss, epoch)
+        writer.add_scalar('Accuracy/valid', valid_acc, epoch)
 
         if valid_loss < best_valid_loss:
             best_valid_loss = valid_loss
             torch.save(model.state_dict(), weights_dir / "best.pt")
             print(f"Best model saved with valid loss: {best_valid_loss:.4f}")
 
+    dataiter = iter(valid_loader)
+    images, labels = next(dataiter)
+    
+    images_for_grid = images[:4]
+    img_grid = utils.make_grid(images_for_grid)
+    writer.add_image('Validation images', img_grid)
+    
+    model.eval()
+    images_for_grid = images_for_grid.to(device)
+    outputs = model(images_for_grid)
+    _, predicted = torch.max(outputs, 1)
+    
+    class_names = valid_loader.dataset.dataset.classes
+    
+    writer.add_text('Predictions', 
+                    'GroundTruth: ' + ' '.join(f'{class_names[labels[j]]}' for j in range(4)) + 
+                    '\n\nPrediction: ' + ' '.join(f'{class_names[predicted[j]]}' for j in range(4)), 0)
+
+
     torch.save(model.state_dict(), weights_dir / "latest.pt")
     print("Latest model saved.")
+    writer.close()
 
 def main():
     model_name = "resnet101"
