@@ -1,8 +1,13 @@
 import torch 
 from torch.utils.data import DataLoader, random_split
-from torchvision import transforms
+from torchvision import transforms, utils
 import timm 
 from pathlib import Path 
+from torch.utils.tensorboard import SummaryWriter
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.metrics import confusion_matrix
+import io
 
 from config import classes
 from utils import CustomImageFolder
@@ -60,7 +65,7 @@ def _train_epoch(model: torch.nn.Module,
                  optimizer: torch.optim.Optimizer,
                  criterion: torch.nn.Module,
                  device: str
-                 ) -> float:
+                 ) -> tuple[float, float]:
     """
     하나의 에포크를 학습하는 함수 
 
@@ -73,6 +78,8 @@ def _train_epoch(model: torch.nn.Module,
     """
     model.train()
     running_loss = 0.0
+    correct = 0
+    total = 0
     for inputs, labels in train_loader:
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
@@ -81,29 +88,81 @@ def _train_epoch(model: torch.nn.Module,
         loss.backward()
         optimizer.step()
         running_loss += loss.item() * inputs.size(0)
+        
+        _, predicted = torch.max(outputs.data, 1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
     
     epoch_loss = running_loss / len(train_loader.dataset)
-    return epoch_loss
+    epoch_acc = correct / total
+    return epoch_loss, epoch_acc
 
 def _valid_epoch(model: torch.nn.Module,
                  valid_loader: DataLoader,
                  criterion: torch.nn.Module,
                  device: str
-                 ) -> float:
+                 ) -> tuple[float, float, list, list]:
     """
     하나의 에포크를 검증하는 함수 
     """
     model.eval()
     running_loss = 0.0
+    correct = 0
+    total = 0
+    
+    all_preds = []
+    all_labels = []
+    
     with torch.no_grad():
         for inputs, labels in valid_loader:
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             running_loss += loss.item() * inputs.size(0)
+            
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
 
     epoch_loss = running_loss / len(valid_loader.dataset)
-    return epoch_loss
+    epoch_acc = correct / total
+    return epoch_loss, epoch_acc, all_preds, all_labels
+
+def plot_confusion_matrix(preds, labels, class_names):
+    """Confusion matrix를 생성하고 이미지로 반환합니다."""
+    cm = confusion_matrix(labels, preds)
+    fig, ax = plt.subplots(figsize=(10, 10))
+    im = ax.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    ax.figure.colorbar(im, ax=ax)
+    ax.set(xticks=np.arange(cm.shape[1]),
+           yticks=np.arange(cm.shape[0]),
+           xticklabels=class_names, yticklabels=class_names,
+           title='Confusion matrix',
+           ylabel='True label',
+           xlabel='Predicted label')
+
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor")
+
+    fmt = 'd'
+    thresh = cm.max() / 2.
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(j, i, format(cm[i, j], fmt),
+                    ha="center", va="center",
+                    color="white" if cm[i, j] > thresh else "black")
+    fig.tight_layout()
+    
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    plt.close(fig)
+    buf.seek(0)
+    
+    image = transforms.ToTensor()(plt.imread(buf, format='png'))
+    return image
+
 
 def train_model(model: torch.nn.Module,
                 train_loader: DataLoader,
@@ -129,25 +188,54 @@ def train_model(model: torch.nn.Module,
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     
+    writer = SummaryWriter('runs/model_experiment')
+    
     best_valid_loss = float('inf')
     
     weights_dir: Path = Path("models")
     weights_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 고정된 검증 이미지 배치 가져오기
+    fixed_val_images, fixed_val_labels = next(iter(valid_loader))
 
     for epoch in range(epochs):
-        train_loss = _train_epoch(model=model, 
-                                  train_loader=train_loader, 
-                                  optimizer=optimizer, 
-                                  criterion=criterion, 
-                                  device=device
-                                  )
+        train_loss, train_acc = _train_epoch(model=model, 
+                                             train_loader=train_loader, 
+                                             optimizer=optimizer, 
+                                             criterion=criterion, 
+                                             device=device
+                                             )
         
-        valid_loss = _valid_epoch(model=model, 
-                                  valid_loader=valid_loader,
-                                  criterion=criterion,
-                                  device=device
-                                  )
-        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} | Valid Loss: {valid_loss:.4f}")
+        valid_loss, valid_acc, valid_preds, valid_labels = _valid_epoch(model=model, 
+                                                                        valid_loader=valid_loader,
+                                                                        criterion=criterion,
+                                                                        device=device
+                                                                        )
+        
+        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | Valid Loss: {valid_loss:.4f} | Valid Acc: {valid_acc:.4f}")
+
+        writer.add_scalar('Loss/train', train_loss, epoch)
+        writer.add_scalar('Accuracy/train', train_acc, epoch)
+        writer.add_scalar('Loss/valid', valid_loss, epoch)
+        writer.add_scalar('Accuracy/valid', valid_acc, epoch)
+
+        # Confusion Matrix 로깅
+        cm_image = plot_confusion_matrix(valid_preds, valid_labels, classes)
+        writer.add_image('Confusion Matrix', cm_image, epoch)
+        
+        # 예측 결과 이미지 로깅
+        model.eval()
+        with torch.no_grad():
+            outputs = model(fixed_val_images.to(device))
+            _, predicted = torch.max(outputs, 1)
+        
+        img_grid = utils.make_grid(fixed_val_images)
+        # 이미지에 정답/예측 텍스트 추가 (이 부분은 torchvision만으로는 복잡하여 캡션으로 대체)
+        writer.add_image('Validation Predictions', img_grid, epoch)
+        
+        caption = "Pred: " + ", ".join(f"{classes[p]}" for p in predicted) + "\n\nTrue: " + ", ".join(f"{classes[l]}" for l in fixed_val_labels)
+        writer.add_text('Prediction vs. True', caption, epoch)
+
 
         if valid_loss < best_valid_loss:
             best_valid_loss = valid_loss
@@ -156,6 +244,7 @@ def train_model(model: torch.nn.Module,
 
     torch.save(model.state_dict(), weights_dir / "latest.pt")
     print("Latest model saved.")
+    writer.close()
 
 def main():
     model_name = "resnet101"
@@ -171,7 +260,8 @@ def main():
     
     train_model(model=model,
                 train_loader=train_loader,
-                valid_loader=valid_loader
+                valid_loader=valid_loader,
+                device=3
                 )
 
 if __name__ == "__main__":
