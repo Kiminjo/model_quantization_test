@@ -49,5 +49,22 @@ def main():
     print("Training complete.")
     print(f"Results saved to {results.save_dir}")
 
+    # --- TensorRT로 모델 변환 (INT8 Quantization) ---
+    print("\nExporting the best model to TensorRT with INT8 quantization...")
+    
+    # 가장 성능이 좋은 모델('best.pt') 로드
+    best_model_path = Path(results.save_dir) / 'weights' / 'best.pt'
+    if best_model_path.exists():
+        best_model = YOLO(best_model_path)
+        
+        # TensorRT로 변환
+        # int8=True 옵션은 Post-Training Quantization(PTQ)을 적용합니다.
+        exported_model_path = best_model.export(format='tensorrt', int8=True)
+        
+        print(f"Successfully exported model to: {exported_model_path}")
+    else:
+        print(f"Error: Could not find the best model at {best_model_path}")
+
+
 if __name__ == '__main__':
     main()
