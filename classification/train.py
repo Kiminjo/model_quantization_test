@@ -8,6 +8,7 @@ Date: 2025-08-18
 import sys
 from pathlib import Path
 from ultralytics import YOLO
+from datetime import datetime
 
 def main():
     # 프로젝트 루트 경로 설정
@@ -22,17 +23,27 @@ def main():
         print("Please run 'classification/preprocessing.py' first.")
         sys.exit(1)
 
+    # --- 학습 파라미터 및 동적 실험 이름 설정 ---
+    model_path = 'yolo11n-cls.pt'
+    img_size = 400
+    epochs = 100
+    device = 3
+    
+    model_name = Path(model_path).stem
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    experiment_name = f"baseline_{model_name}_imgsz{img_size}_{timestamp}"
+    
     # 사전 학습된 YOLOv11n-cls 모델 로드
-    model = YOLO('yolo11n-cls.pt')
+    model = YOLO(model_path)
 
     # 모델 학습
     results = model.train(
         data=str(processed_data_path),
-        epochs=100,
-        imgsz=400,
-        device=3,
+        epochs=epochs,
+        imgsz=img_size,
+        device=device,
         project='runs',
-        name='classification_experiment'
+        name=experiment_name
     )
     
     print("Training complete.")
