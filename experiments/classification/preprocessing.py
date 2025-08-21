@@ -17,7 +17,7 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
 
 try:
-    from config import dir_name_to_class
+    from classification.config import dir_name_to_class
 except ImportError:
     print("Error: config.py not found. Make sure it is in the project root directory.")
     sys.exit(1)
