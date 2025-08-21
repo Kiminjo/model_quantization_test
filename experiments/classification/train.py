@@ -12,7 +12,7 @@ from datetime import datetime
 
 def main():
     # 프로젝트 루트 경로 설정
-    project_root = Path(__file__).resolve().parent.parent
+    project_root = Path(__file__).resolve().parent.parent.parent
     
     # 전처리된 데이터 경로 설정
     processed_data_path = project_root / 'data' / 'processed' / 'classification'
@@ -42,7 +42,7 @@ def main():
         epochs=epochs,
         imgsz=img_size,
         device=device,
-        project='runs',
+        project='runs/classify/',
         name=experiment_name
     )
     
