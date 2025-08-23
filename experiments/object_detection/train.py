@@ -37,7 +37,7 @@ def main():
     # 사전 학습된 YOLOv8n 모델 로드
     model = YOLO(model_path)
 
-    # 모델 학습
+   # 모델 학습
     results = model.train(
         data=str(data_yaml_path),  # data.yaml 파일 경로 지정
         epochs=epochs,
@@ -60,7 +60,7 @@ def main():
         
         # TensorRT로 변환
         # int8=True 옵션은 Post-Training Quantization(PTQ)을 적용합니다.
-        exported_model_path = best_model.export(format='tensorrt', int8=True)
+        exported_model_path = best_model.export(format='tensorrt', int8=True, data=str(data_yaml_path))
         
         print(f"Successfully exported model to: {exported_model_path}")
     else:
