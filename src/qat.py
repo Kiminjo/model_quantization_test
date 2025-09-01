@@ -5,6 +5,8 @@ import torch.quantization as quant
 from torch.quantization import QuantStub, DeQuantStub
 from datetime import datetime
 from pathlib import Path
+import argparse
+import shutil
 
 class QATWrapper(nn.Module):
     """YOLO 모델을 QAT용으로 래핑하는 클래스"""
@@ -302,6 +304,15 @@ class YOLOQATTrainer:
 
 # 사용 예시
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="YOLO QAT Training Script")
+    parser.add_argument('--model_path', type=str, required=True, 
+                        help='Path to the base model weights file (e.g., best.pt)')
+    parser.add_argument('--data_path', type=str, required=True, 
+                        help='Path to the data.yaml file')
+    parser.add_argument('--save_dir', type=str, default='runs/qat', 
+                        help='Directory to save QAT training results')
+    args = parser.parse_args()
+
     # # 방법 1: 기본 QAT 구현
     # print("=== 방법 1: 기본 QAT 구현 ===")
     # qat_model, quantized_model = train_qat_yolo(
@@ -312,18 +323,18 @@ if __name__ == "__main__":
     # 방법 2: Ultralytics 파이프라인 통합
     print("\n=== 방법 2: Ultralytics 통합 ===")
     
-    # 1. 원본 모델 경로 설정
-    original_model_path = 'runs/detect/baseline_yolo11n_imgsz400_20250823_231255/weights/best.pt'
-    data_path = 'data/processed/object_detection/data.yaml'
+    # 1. 원본 모델 경로 설정 (argparse에서 받음)
+    original_model_path = args.model_path
+    data_path = args.data_path
     
     # 2. QAT 전용 디렉토리 생성 및 모델 복사
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    qat_base_dir = Path('runs/qat')
-    qat_model_dir = qat_base_dir / f'baseline_model_{timestamp}'
+    qat_base_dir = Path(args.save_dir)
+    model_name = Path(original_model_path).stem
+    qat_model_dir = qat_base_dir / f'qat_{model_name}_{timestamp}'
     qat_model_dir.mkdir(parents=True, exist_ok=True)
     
     # 원본 모델을 QAT 디렉토리로 복사
-    import shutil
     qat_model_path = qat_model_dir / 'best.pt'
     shutil.copy2(original_model_path, qat_model_path)
     print(f"✅ 원본 모델을 {qat_model_path}로 복사했습니다.")
@@ -339,7 +350,7 @@ if __name__ == "__main__":
         epochs=20,
         imgsz=imgsz,
         batch=16,
-        project='runs/qat',
+        project=args.save_dir,
         name=experiment_name,
         amp=False # QAT 학습 시에는 AMP를 끄는 것이 안정적입니다.
     )
