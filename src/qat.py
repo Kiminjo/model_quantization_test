@@ -7,6 +7,27 @@ from datetime import datetime
 from pathlib import Path
 import argparse
 import shutil
+import logging
+import sys
+
+def setup_logging():
+    """Setup logging to file and console."""
+    project_root = Path(__file__).resolve().parent.parent
+    log_dir = project_root / 'logs'
+    log_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_filename = log_dir / f"od_qat_{timestamp}.log"
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_filename),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    logging.info(f"Log file will be saved to {log_filename}")
 
 class QATWrapper(nn.Module):
     """YOLO 모델을 QAT용으로 래핑하는 클래스"""
@@ -123,9 +144,9 @@ def train_qat_yolo(model_path='yolov8n.pt', data_path='coco128.yaml', epochs=10)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     qat_yolo.to(device)
     
-    print(f"QAT 훈련 시작 - {epochs} epochs")
-    print(f"초기 학습률: {initial_lr}")
-    print(f"스케줄러: CosineAnnealingLR")
+    logging.info(f"QAT 훈련 시작 - {epochs} epochs")
+    logging.info(f"초기 학습률: {initial_lr}")
+    logging.info(f"스케줄러: CosineAnnealingLR")
     
     for epoch in range(epochs):
         qat_yolo.train()
@@ -153,7 +174,7 @@ def train_qat_yolo(model_path='yolov8n.pt', data_path='coco128.yaml', epochs=10)
         scheduler.step()
         current_lr = scheduler.get_last_lr()[0]
         
-        print(f"Epoch {epoch+1}/{epochs} 완료 - Loss: {epoch_loss:.4f}, LR: {current_lr:.6f}")
+        logging.info(f"Epoch {epoch+1}/{epochs} 완료 - Loss: {epoch_loss:.4f}, LR: {current_lr:.6f}")
     
     # 훈련 완료 후 quantized 모델로 변환
     quantized_model = qat_yolo.convert_to_quantized()
@@ -224,7 +245,7 @@ class YOLOQATTrainer:
     
     def train(self, data='coco128.yaml', epochs=10, **kwargs):
         """QAT 훈련 실행 - 더 안전한 방법"""
-        print("QAT 훈련 시작...")
+        logging.info("QAT 훈련 시작...")
         
         # `project`와 `name`을 kwargs에서 추출하여 저장 경로 제어
         project = kwargs.pop('project', 'runs/qat')
@@ -244,7 +265,7 @@ class YOLOQATTrainer:
                 **kwargs
             )
         except Exception as e:
-            print(f"훈련 중 오류 발생: {e}")
+            logging.error(f"훈련 중 오류 발생: {e}")
             # QAT 모델로 다시 설정
             self.setup_qat()
             raise e
@@ -256,7 +277,7 @@ class YOLOQATTrainer:
         from ultralytics.models.yolo.detect import DetectionTrainer
         from ultralytics.utils import LOGGER
         
-        print("QAT 훈련 시작 (대안 방법)...")
+        logging.info("QAT 훈련 시작 (대안 방법)...")
         
         # QAT에 최적화된 설정
         qat_lr0 = kwargs.pop('lr0', 0.0001)  # QAT용 낮은 학습률
@@ -278,11 +299,11 @@ class YOLOQATTrainer:
             **kwargs
         }
         
-        print(f"QAT 최적화 설정:")
-        print(f"  - 초기 학습률 (lr0): {qat_lr0}")
-        print(f"  - 최종 학습률 비율 (lrf): {qat_lrf}")
-        print(f"  - 스케줄러: {qat_scheduler}")
-        print(f"  - Weight decay: {cfg['weight_decay']}")
+        logging.info(f"QAT 최적화 설정:")
+        logging.info(f"  - 초기 학습률 (lr0): {qat_lr0}")
+        logging.info(f"  - 최종 학습률 비율 (lrf): {qat_lrf}")
+        logging.info(f"  - 스케줄러: {qat_scheduler}")
+        logging.info(f"  - Weight decay: {cfg['weight_decay']}")
         
         # Trainer 직접 생성
         trainer = DetectionTrainer(overrides=cfg)
@@ -313,15 +334,17 @@ if __name__ == "__main__":
                         help='Directory to save QAT training results')
     args = parser.parse_args()
 
+    setup_logging()
+
     # # 방법 1: 기본 QAT 구현
-    # print("=== 방법 1: 기본 QAT 구현 ===")
+    # logging.info("=== 방법 1: 기본 QAT 구현 ===")
     # qat_model, quantized_model = train_qat_yolo(
     #     model_path='yolov8n.pt',
     #     epochs=5
     # )
     
     # 방법 2: Ultralytics 파이프라인 통합
-    print("\n=== 방법 2: Ultralytics 통합 ===")
+    logging.info("\n=== 방법 2: Ultralytics 통합 ===")
     
     # 1. 원본 모델 경로 설정 (argparse에서 받음)
     original_model_path = args.model_path
@@ -337,7 +360,7 @@ if __name__ == "__main__":
     # 원본 모델을 QAT 디렉토리로 복사
     qat_model_path = qat_model_dir / 'best.pt'
     shutil.copy2(original_model_path, qat_model_path)
-    print(f"✅ 원본 모델을 {qat_model_path}로 복사했습니다.")
+    logging.info(f"✅ 원본 모델을 {qat_model_path}로 복사했습니다.")
     
     # 3. 복사된 모델로 QAT 트레이너 초기화
     qat_trainer = YOLOQATTrainer(str(qat_model_path))
@@ -356,7 +379,7 @@ if __name__ == "__main__":
     )
     
     # quantized 모델로 변환
-    print("훈련된 모델을 양자화 버전으로 변환합니다...")
+    logging.info("훈련된 모델을 양자화 버전으로 변환합니다...")
     quantized_model = qat_trainer.convert_to_quantized()
     
     # 양자화된 모델 저장
@@ -365,10 +388,10 @@ if __name__ == "__main__":
     quantized_model_path = save_dir / 'weights' / 'quantized_best.pt'
     quantized_model_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(quantized_model.state_dict(), quantized_model_path)
-    print(f"✅ Quantized 모델이 {quantized_model_path}에 저장되었습니다.")
+    logging.info(f"✅ Quantized 모델이 {quantized_model_path}에 저장되었습니다.")
     
     # TensorRT로 변환
-    print("Quantized 모델을 TensorRT로 변환합니다...")
+    logging.info("Quantized 모델을 TensorRT로 변환합니다...")
     try:
         # 저장된 QAT 모델을 다시 로드하여 export
         # 주의: 현재 QATWrapper를 포함한 모델은 직접 로드/export가 어려울 수 있음
@@ -387,12 +410,12 @@ if __name__ == "__main__":
         # 3. TensorRT로 export
         # 학습 시 사용한 이미지 크기와 동일하게 설정
         tensorrt_path = trt_exporter.export(format='engine', imgsz=imgsz, data=data_path)
-        print(f"✅ TensorRT 모델이 {tensorrt_path}에 저장되었습니다.")
+        logging.info(f"✅ TensorRT 모델이 {tensorrt_path}에 저장되었습니다.")
 
     except Exception as e:
-        print(f"⚠️ TensorRT 변환 중 오류가 발생했습니다: {e}")
-        print("   QAT 모델의 state_dict 구조가 원본과 다를 수 있습니다.")
-        print("   수동으로 state_dict를 맞춰주거나, ONNX를 경유하여 변환해야 할 수 있습니다.")
+        logging.error(f"⚠️ TensorRT 변환 중 오류가 발생했습니다: {e}")
+        logging.warning("   QAT 모델의 state_dict 구조가 원본과 다를 수 있습니다.")
+        logging.warning("   수동으로 state_dict를 맞춰주거나, ONNX를 경유하여 변환해야 할 수 있습니다.")
 
     
-    print("QAT 훈련 완료!")
+    logging.info("QAT 훈련 완료!")
