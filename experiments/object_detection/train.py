@@ -59,11 +59,12 @@ def prepare_and_export_quantized_model(
     exported_path = model.export(format='tensorrt', **export_params)
     logging.info(f"Successfully exported {precision} model to: {exported_path}")
 
-def export_model_variants(results, project_root, data_yaml_path):
+def export_model_variants(results, data_yaml_path):
     """학습된 모델을 FP32, FP16, INT8 버전으로 내보냅니다."""
     logging.info("Starting model export process for FP32, FP16, and INT8...")
-
-    original_weights_dir = Path(results.save_dir) / 'weights'
+    
+    save_dir = Path(results.save_dir)
+    original_weights_dir = save_dir / 'weights'
     best_pt_path = original_weights_dir / 'best.pt'
 
     if not best_pt_path.exists():
@@ -71,7 +72,7 @@ def export_model_variants(results, project_root, data_yaml_path):
         sys.exit(1)
 
     # FP32 모델 처리
-    fp32_dir = project_root / 'weights_fp32'
+    fp32_dir = save_dir / 'weights_fp32'
     prepare_fp32_model(original_weights_dir, fp32_dir)
     logging.info("--- Starting FP32 model export ---")
     model_fp32 = YOLO(fp32_dir / 'best.pt')
@@ -79,7 +80,7 @@ def export_model_variants(results, project_root, data_yaml_path):
     logging.info(f"Successfully exported FP32 model to: {fp32_exported_path}")
 
     # FP16 모델 처리
-    fp16_dir = project_root / 'weights_fp16'
+    fp16_dir = save_dir / 'weights_fp16'
     prepare_and_export_quantized_model(
         precision='FP16',
         source_pt_path=best_pt_path,
@@ -88,7 +89,7 @@ def export_model_variants(results, project_root, data_yaml_path):
     )
 
     # INT8 모델 처리
-    int8_dir = project_root / 'weights_int8_ptq'
+    int8_dir = save_dir / 'weights_int8_ptq'
     prepare_and_export_quantized_model(
         precision='INT8',
         source_pt_path=best_pt_path,
@@ -147,7 +148,7 @@ def main():
     logging.info(f"Results saved to {results.save_dir}")
 
     # 3가지 정밀도로 모델 내보내기
-    export_model_variants(results, project_root, data_yaml_path)
+    export_model_variants(results, data_yaml_path)
 
 
 if __name__ == '__main__':
