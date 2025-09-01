@@ -28,8 +28,13 @@ class ModelBenchmarker:
         
     def _setup_device(self, device: str) -> str:
         """디바이스 설정"""
-        if device == 'auto':
-            return 'cuda' if torch.cuda.is_available() else 'cpu'
+        if device in ['auto', 'cuda']:
+            if torch.cuda.is_available():
+                print(f"✅ CUDA 사용 가능. GPU: {torch.cuda.get_device_name(0)}")
+                return 'cuda'
+            else:
+                print("⚠️  CUDA를 사용할 수 없습니다. CPU로 실행됩니다.")
+                return 'cpu'
         return device
     
     def benchmark_ultralytics_pt(self, model_path: str, model_name: str = "PT Model") -> Dict:
@@ -38,7 +43,8 @@ class ModelBenchmarker:
         
         try:
             # 모델 로드
-            model = YOLO(model_path)
+            model = YOLO(model_path).to(self.device)
+            print(f"  💻 모델을 {model.device} 디바이스로 이동")
             
             # 모델 입력 크기 자동 감지 및 더미 입력 생성
             print("  🔧 모델 입력 크기 감지 중...")
@@ -47,7 +53,7 @@ class ModelBenchmarker:
             
             # Validation 실행 (mAP 계산)
             print("  📊 mAP 계산 중...")
-            val_results = model.val(data=self.data_path, verbose=False, imgsz=height)
+            val_results = model.val(data=self.data_path, verbose=False, imgsz=height, device=self.device)
             map50_95 = val_results.box.map if hasattr(val_results.box, 'map') else 0.0
             map50 = val_results.box.map50 if hasattr(val_results.box, 'map50') else 0.0
             
@@ -58,7 +64,7 @@ class ModelBenchmarker:
             # 워밍업
             for _ in range(10):
                 try:
-                    _ = model(dummy_input, verbose=False)
+                    _ = model(dummy_input, verbose=False, device=self.device)
                 except Exception as e:
                     print(f"  ⚠️  워밍업 중 오류: {e}")
                     break
@@ -67,9 +73,16 @@ class ModelBenchmarker:
             successful_runs = 0
             for i in range(100):
                 try:
+                    if self.device == 'cuda':
+                        torch.cuda.synchronize()
                     start_time = time.time()
-                    _ = model(dummy_input, verbose=False)
+                    
+                    _ = model(dummy_input, verbose=False, device=self.device)
+                    
+                    if self.device == 'cuda':
+                        torch.cuda.synchronize()
                     end_time = time.time()
+
                     inference_times.append(end_time - start_time)
                     successful_runs += 1
                 except Exception as e:
@@ -108,6 +121,10 @@ class ModelBenchmarker:
             # Ultralytics YOLO로 ONNX 모델 로드
             model = YOLO(model_path, task='detect')
             
+            # ONNX/TRT는 device 속성이 None일 수 있으므로, 실행 디바이스를 명시적으로 출력
+            effective_device = self.device if self.device == 'cuda' and torch.cuda.is_available() else 'cpu'
+            print(f"  💻 모델 실행 디바이스: {effective_device}")
+            
             # 모델 입력 크기 자동 감지 및 더미 입력 생성
             print("  🔧 모델 입력 크기 감지 중...")
             dummy_input, height, width = self._create_dummy_input(model)
@@ -115,7 +132,7 @@ class ModelBenchmarker:
             
             # Validation 실행 (mAP 계산)
             print("  📊 mAP 계산 중...")
-            val_results = model.val(data=self.data_path, verbose=False, imgsz=height)
+            val_results = model.val(data=self.data_path, verbose=False, imgsz=height, device=self.device)
             map50_95 = val_results.box.map if hasattr(val_results.box, 'map') else 0.0
             map50 = val_results.box.map50 if hasattr(val_results.box, 'map50') else 0.0
             
@@ -126,7 +143,7 @@ class ModelBenchmarker:
             # 워밍업
             for _ in range(10):
                 try:
-                    _ = model(dummy_input, verbose=False)
+                    _ = model(dummy_input, verbose=False, device=self.device)
                 except Exception as e:
                     print(f"  ⚠️  워밍업 중 오류: {e}")
                     break
@@ -135,9 +152,16 @@ class ModelBenchmarker:
             successful_runs = 0
             for i in range(100):
                 try:
+                    if self.device == 'cuda':
+                        torch.cuda.synchronize()
                     start_time = time.time()
-                    _ = model(dummy_input, verbose=False)
+
+                    _ = model(dummy_input, verbose=False, device=self.device)
+
+                    if self.device == 'cuda':
+                        torch.cuda.synchronize()
                     end_time = time.time()
+                    
                     inference_times.append(end_time - start_time)
                     successful_runs += 1
                 except Exception as e:
@@ -175,6 +199,10 @@ class ModelBenchmarker:
         try:
             # Ultralytics YOLO로 TensorRT 모델 로드
             model = YOLO(model_path, task='detect')
+
+            # ONNX/TRT는 device 속성이 None일 수 있으므로, 실행 디바이스를 명시적으로 출력
+            effective_device = self.device if self.device == 'cuda' and torch.cuda.is_available() else 'cpu'
+            print(f"  💻 모델 실행 디바이스: {effective_device}")
             
             # 모델 입력 크기 자동 감지 및 더미 입력 생성
             print("  🔧 모델 입력 크기 감지 중...")
@@ -183,7 +211,7 @@ class ModelBenchmarker:
             
             # Validation 실행 (mAP 계산)
             print("  📊 mAP 계산 중...")
-            val_results = model.val(data=self.data_path, verbose=False, imgsz=height)
+            val_results = model.val(data=self.data_path, verbose=False, imgsz=height, device=self.device)
             map50_95 = val_results.box.map if hasattr(val_results.box, 'map') else 0.0
             map50 = val_results.box.map50 if hasattr(val_results.box, 'map50') else 0.0
             
@@ -194,7 +222,7 @@ class ModelBenchmarker:
             # 워밍업
             for _ in range(10):
                 try:
-                    _ = model(dummy_input, verbose=False)
+                    _ = model(dummy_input, verbose=False, device=self.device)
                 except Exception as e:
                     print(f"  ⚠️  워밍업 중 오류: {e}")
                     break
@@ -203,9 +231,16 @@ class ModelBenchmarker:
             successful_runs = 0
             for i in range(100):
                 try:
+                    if self.device == 'cuda':
+                        torch.cuda.synchronize()
                     start_time = time.time()
-                    _ = model(dummy_input, verbose=False)
+
+                    _ = model(dummy_input, verbose=False, device=self.device)
+
+                    if self.device == 'cuda':
+                        torch.cuda.synchronize()
                     end_time = time.time()
+                    
                     inference_times.append(end_time - start_time)
                     successful_runs += 1
                 except Exception as e:
