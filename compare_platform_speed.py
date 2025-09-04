@@ -127,17 +127,54 @@ class ModelSpeedBenchmarker:
     def _get_model_input_size(self, model) -> Tuple[int, int]:
         """모델의 입력 크기를 자동으로 감지"""
         try:
+            # Ultralytics 모델에서 imgsz 속성 확인
             if hasattr(model, 'overrides') and 'imgsz' in model.overrides:
                 imgsz = model.overrides['imgsz']
                 if isinstance(imgsz, int): return imgsz, imgsz
                 if isinstance(imgsz, (list, tuple)) and len(imgsz) == 2: return imgsz[0], imgsz[1]
+            
+            # 모델 args에서 imgsz 확인
             if hasattr(model, 'args') and hasattr(model.args, 'imgsz'):
                 imgsz = model.args.imgsz
                 if isinstance(imgsz, int): return imgsz, imgsz
                 if isinstance(imgsz, (list, tuple)) and len(imgsz) >= 2: return imgsz[0], imgsz[1]
-            return 640, 640
+            
+            # 일반적인 YOLO 입력 크기들을 시도해봄 (작은 크기부터)
+            # common_sizes = [320, 384, 400, 416, 480, 512, 640]
+            common_sizes = [416]
+            
+            for size in common_sizes:
+                try:
+                    # PIL Image로 테스트 입력 생성
+                    from PIL import Image
+                    import numpy as np
+                    test_img = Image.fromarray(np.random.randint(0, 255, (size, size, 3), dtype=np.uint8))
+                    _ = model(test_img, verbose=False)
+                    logging.info(f"  📏 감지된 모델 입력 크기: {size}x{size}")
+                    return size, size  # 성공하면 해당 크기 반환
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "input" in error_msg and "size" in error_msg:
+                        # 오류 메시지에서 모델의 최대 크기 추출 시도
+                        # 예: "max model size (1, 3, 416, 416)"
+                        import re
+                        match = re.search(r'max model size.*?(\d+),\s*(\d+)\)', error_msg)
+                        if match:
+                            max_height, max_width = int(match.group(1)), int(match.group(2))
+                            logging.info(f"  📏 오류 메시지에서 추출한 모델 크기: {max_height}x{max_width}")
+                            return max_height, max_width
+                        continue
+                    # 다른 타입의 에러는 해당 크기가 맞다고 가정
+                    return size, size
+            
+            # 모든 크기가 실패하면 기본값 반환 (가장 작은 크기)
+            logging.warning("  ⚠️  모델 입력 크기 자동 감지 실패. 기본값 416x416 사용")
+            return 416, 416
+            
         except Exception:
-            return 640, 640
+            # 감지 실패 시 기본값
+            logging.warning("  ⚠️  모델 입력 크기 감지 중 오류 발생. 기본값 416x416 사용")
+            return 416, 416
     
     def _create_dummy_input(self, model) -> Tuple[Image.Image, int, int]:
         """모델에 맞는 더미 입력 생성"""
