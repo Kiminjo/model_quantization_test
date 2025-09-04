@@ -75,8 +75,10 @@ def export_model_variants(results, data_yaml_path):
         logging.error(f"Best weights not found at {best_pt_path}")
         return
 
-    # 모델 저장 디렉토리 설정
-    export_base_dir = Path(results.project) / 'exported_models'
+    # 모델 저장 디렉토리 설정 - results.save_dir의 상위 디렉토리를 사용
+    # results.save_dir는 'runs/detect/experiment_name' 형태
+    experiment_dir = Path(results.save_dir)
+    export_base_dir = experiment_dir / 'exported_models'
     fp32_dir = export_base_dir / 'FP32'
     fp16_dir = export_base_dir / 'FP16'
     int8_dir = export_base_dir / 'INT8_PTQ'
@@ -110,6 +112,8 @@ def export_model_variants(results, data_yaml_path):
         export_params={'int8': True, 'data': str(data_yaml_path)},
         imgsz=imgsz
     )
+    
+    logging.info(f"All models exported to: {export_base_dir}")
     
 def main():
     # 프로젝트 루트 경로 설정
