@@ -409,7 +409,7 @@ if __name__ == "__main__":
 
         # 3. TensorRT로 export
         # 학습 시 사용한 이미지 크기와 동일하게 설정
-        tensorrt_path = trt_exporter.export(format='engine', imgsz=imgsz, data=data_path)
+        tensorrt_path = trt_exporter.export(format='engine', imgsz=imgsz, data=data_path, int8=True)
         logging.info(f"✅ TensorRT 모델이 {tensorrt_path}에 저장되었습니다.")
 
     except Exception as e:
