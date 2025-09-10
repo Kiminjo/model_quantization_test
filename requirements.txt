@@ -1,0 +1,17 @@
+# 기본 패키지
+numpy<2.0.0  # NumPy 2.0 호환성 문제 해결
+matplotlib
+pillow
+
+# 머신러닝 패키지
+torch>=2.0.0
+torchvision
+ultralytics
+tensorrt-cu12
+
+# ONNX 관련
+onnx
+onnxruntime-gpu
+
+# 기타 유틸리티
+pathlib
