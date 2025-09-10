@@ -1,4 +1,6 @@
 [core]
     remote = origin
 ['remote "origin"']
-    url = /mnt/hdd/dvc
+    url = ssh://10.10.100.12:/mnt/hdd/dvc
+    user = injokim
+    port = 22
