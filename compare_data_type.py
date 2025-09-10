@@ -7,9 +7,35 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 import json
 import logging
+import re
+from datetime import datetime
 
-# 로깅 설정
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+def setup_logging():
+    """로깅을 파일과 콘솔에 동시에 설정"""
+    # 로그 폴더 생성
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    
+    # 스크립트 이름과 현재 시간을 기반으로 로그 파일명 생성
+    script_name = Path(__file__).stem  # compare_data_type
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename = log_dir / f"{script_name}_{timestamp}.log"
+    
+    # 로깅 설정
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_filename, encoding='utf-8'),  # 파일 출력
+            logging.StreamHandler()  # 콘솔 출력
+        ]
+    )
+    
+    logging.info(f"📝 로그 파일 생성: {log_filename}")
+    return str(log_filename)
+
+# 로깅 설정 실행
+setup_logging()
 
 # 필요한 라이브러리 import
 try:
@@ -51,6 +77,10 @@ class ModelPerformanceBenchmarker:
             effective_device = 'cuda' if self.device == 'cuda' and torch.cuda.is_available() else 'cpu'
             logging.info(f"  💻 모델 실행 디바이스: {effective_device}")
             
+            # TensorRT 모델 상세 정보 로깅 (C++ 추론기 개발용)
+            model_info = self._extract_tensorrt_model_info(model, model_path)
+            self._log_tensorrt_model_details(model_info, model_name)
+            
             # 모델 입력 크기 감지
             height, width = self._get_model_input_size(model)
             logging.info(f"  📐 감지된 입력 크기: {height}x{width}")
@@ -71,7 +101,8 @@ class ModelPerformanceBenchmarker:
                 'map50_95': float(map50_95),
                 'map50': float(map50),
                 'input_size': f"{height}x{width}",
-                **speed_results
+                **speed_results,
+                **model_info  # TensorRT 상세 정보 추가
             }
             
             return results
@@ -79,6 +110,151 @@ class ModelPerformanceBenchmarker:
         except Exception as e:
             logging.error(f"  ❌ {model_name} 벤치마킹 중 오류 발생: {e}", exc_info=True)
             return self._empty_results('TensorRT')
+    
+    def _extract_tensorrt_model_info(self, model, model_path: str) -> Dict:
+        """TensorRT 모델의 상세 정보 추출 (C++ 추론기 개발용)"""
+        model_info = {
+            'engine_path': model_path,
+            'input_tensors': [],
+            'output_tensors': [],
+            'num_classes': 80,  # COCO 기본값
+            'class_names': [],
+            'engine_file_size_mb': 0.0,
+            'tensorrt_version': 'unknown',
+            'precision': 'unknown',
+            'max_batch_size': 1,
+            'workspace_size': 'unknown'
+        }
+        
+        try:
+            # 엔진 파일 크기
+            if os.path.exists(model_path):
+                file_size = os.path.getsize(model_path) / (1024 * 1024)  # MB
+                model_info['engine_file_size_mb'] = round(file_size, 2)
+            
+            # Ultralytics 모델에서 정보 추출
+            if hasattr(model, 'model') and hasattr(model.model, 'model'):
+                try:
+                    # 입력/출력 정보 추출 시도
+                    dummy_input, height, width = self._create_dummy_input(model)
+                    results = model(dummy_input, verbose=False)
+                    
+                    # 입력 텐서 정보
+                    model_info['input_tensors'] = [{
+                        'name': 'images',
+                        'shape': [1, 3, height, width],
+                        'dtype': 'float32',
+                        'format': 'NCHW'
+                    }]
+                    
+                    # 출력 텐서 정보 (results로부터 추출)
+                    if hasattr(results[0], 'boxes') and results[0].boxes is not None:
+                        boxes = results[0].boxes
+                        if hasattr(boxes, 'data') and boxes.data is not None:
+                            box_shape = list(boxes.data.shape) if hasattr(boxes.data, 'shape') else [0, 6]
+                            
+                            # 샘플 출력값 로깅 (처음 몇 개만)
+                            sample_data = boxes.data[:3] if len(boxes.data) > 0 else None
+                            
+                            model_info['output_tensors'].append({
+                                'name': 'detections',
+                                'shape': box_shape,
+                                'dtype': 'float32',
+                                'description': 'Detection boxes with confidence and class (x1,y1,x2,y2,conf,class)',
+                                'sample_values': sample_data.tolist() if sample_data is not None else None
+                            })
+                    
+                    # 클래스 정보
+                    if hasattr(model, 'names') and model.names:
+                        model_info['class_names'] = list(model.names.values())
+                        model_info['num_classes'] = len(model.names)
+                
+                except Exception as e:
+                    logging.warning(f"  ⚠️  모델 추론 중 상세 정보 추출 실패: {e}")
+            
+            # 파일명에서 precision 추정
+            model_path_lower = model_path.lower()
+            if 'fp32' in model_path_lower:
+                model_info['precision'] = 'FP32'
+            elif 'fp16' in model_path_lower:
+                model_info['precision'] = 'FP16'
+            elif 'int8' in model_path_lower:
+                model_info['precision'] = 'INT8'
+            elif any(x in model_path_lower for x in ['ptq', 'qat']):
+                model_info['precision'] = 'INT8'
+            
+        except Exception as e:
+            logging.warning(f"  ⚠️  TensorRT 모델 정보 추출 중 오류: {e}")
+        
+        return model_info
+    
+    def _log_tensorrt_model_details(self, model_info: Dict, model_name: str):
+        """TensorRT 모델 상세 정보 로깅 (C++ 추론기 개발용)"""
+        logging.info(f"\n{'='*60}")
+        logging.info(f"🔧 TensorRT 모델 상세 정보 - {model_name}")
+        logging.info(f"{'='*60}")
+        
+        # 기본 정보
+        logging.info(f"📁 Engine 파일: {model_info['engine_path']}")
+        logging.info(f"📏 파일 크기: {model_info['engine_file_size_mb']} MB")
+        logging.info(f"🎯 정밀도: {model_info['precision']}")
+        logging.info(f"📦 최대 배치 크기: {model_info['max_batch_size']}")
+        
+        # 입력 텐서 정보
+        logging.info(f"\n🔍 입력 텐서 정보:")
+        for i, tensor in enumerate(model_info['input_tensors']):
+            logging.info(f"  입력 {i+1}:")
+            logging.info(f"    - 이름: {tensor['name']}")
+            logging.info(f"    - 형태: {tensor['shape']}")
+            logging.info(f"    - 데이터 타입: {tensor['dtype']}")
+            logging.info(f"    - 포맷: {tensor['format']}")
+        
+        # 출력 텐서 정보
+        logging.info(f"\n📤 출력 텐서 정보:")
+        for i, tensor in enumerate(model_info['output_tensors']):
+            logging.info(f"  출력 {i+1}:")
+            logging.info(f"    - 이름: {tensor['name']}")
+            logging.info(f"    - 형태: {tensor['shape']}")
+            logging.info(f"    - 데이터 타입: {tensor['dtype']}")
+            if 'description' in tensor:
+                logging.info(f"    - 설명: {tensor['description']}")
+            if 'sample_values' in tensor and tensor['sample_values']:
+                logging.info(f"    - 샘플 출력값 (처음 3개):")
+                for j, sample in enumerate(tensor['sample_values'][:3]):
+                    if isinstance(sample, list) and len(sample) >= 6:
+                        logging.info(f"      검출 {j+1}: x1={sample[0]:.2f}, y1={sample[1]:.2f}, "
+                                   f"x2={sample[2]:.2f}, y2={sample[3]:.2f}, conf={sample[4]:.3f}, class={int(sample[5])}")
+        
+        # 클래스 정보
+        logging.info(f"\n🏷️  클래스 정보:")
+        logging.info(f"  - 클래스 수: {model_info['num_classes']}")
+        if model_info['class_names'] and len(model_info['class_names']) <= 10:
+            logging.info(f"  - 클래스 이름: {model_info['class_names']}")
+        elif model_info['class_names']:
+            logging.info(f"  - 클래스 이름 (첫 10개): {model_info['class_names'][:10]}...")
+        
+        # C++ 구현 가이드
+        logging.info(f"\n💡 C++ TensorRT 추론기 구현 가이드:")
+        logging.info(f"  1. Engine 로드: deserializeCudaEngine('{model_info['engine_path']}')")
+        if model_info['input_tensors']:
+            tensor = model_info['input_tensors'][0]
+            logging.info(f"  2. 입력 바인딩: bindingIsInput=true, shape={tensor['shape']}")
+        if model_info['output_tensors']:
+            tensor = model_info['output_tensors'][0]  
+            logging.info(f"  3. 출력 바인딩: bindingIsInput=false, shape={tensor['shape']}")
+        logging.info(f"  4. 전처리: BGR->RGB, Normalize [0,1], HWC->CHW")
+        logging.info(f"  5. 후처리: NMS, 좌표 변환, 신뢰도 필터링")
+        logging.info(f"  6. 임계값: confidence > 0.25, NMS IoU > 0.45")
+        logging.info(f"  7. 좌표 형식: 절대 좌표 (픽셀 단위)")
+        
+        # 추가 구현 참고사항
+        logging.info(f"\n📋 구현 참고사항:")
+        logging.info(f"  - TensorRT API: IRuntime, ICudaEngine, IExecutionContext")
+        logging.info(f"  - 메모리 관리: cudaMalloc, cudaMemcpy")
+        logging.info(f"  - 동기화: cudaDeviceSynchronize() 또는 CUDA Stream 사용")
+        logging.info(f"  - 배치 처리: 동적 배치 크기 지원 확인 필요")
+        
+        logging.info(f"{'='*60}\n")
             
     def _get_model_input_size(self, model) -> Tuple[int, int]:
         """모델의 입력 크기를 자동으로 감지"""
