@@ -2,7 +2,8 @@ from typing import List, Dict
 
 # 학습할 클래스 목록
 CLASSES: List[str] = [
-    'FM'
+    'FM',
+    'not_FM'
 ]
 
 # 클래스 이름을 인덱스로 매핑
