@@ -83,7 +83,8 @@ class ModelSpeedBenchmarker:
         # 실제 측정
         logging.info(f"  ⏱️  {model_name} 추론 속도 측정 중...")
         successful_runs = 0
-        for i in range(100):
+        run_epochs = 5000
+        for i in range(run_epochs):
             try:
                 if self.device == 'cuda': torch.cuda.synchronize()
                 start_time = time.time()
@@ -102,7 +103,7 @@ class ModelSpeedBenchmarker:
         avg_inference_time = np.mean(inference_times) * 1000  # ms
         fps = 1.0 / np.mean(inference_times)
         
-        logging.info(f"  ✅ {model_name} 완료 - FPS: {fps:.2f} ({successful_runs}/100 성공)")
+        logging.info(f"  ✅ {model_name} 완료 - FPS: {fps:.2f} ({successful_runs}/{run_epochs} 성공)")
         return {'avg_inference_time_ms': float(avg_inference_time), 'fps': float(fps), 'successful_runs': successful_runs}
 
     def benchmark_pt(self, model_path: str) -> Dict:
