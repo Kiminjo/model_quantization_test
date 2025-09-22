@@ -328,7 +328,7 @@ class ModelPerformanceBenchmarker:
                 break
         
         # 실제 측정
-        run_epochs = 10000
+        run_epochs = 5000
         logging.info(f"  ⏱️  {model_name} 추론 속도 측정 중...")
         successful_runs = 0
         for i in range(run_epochs):
